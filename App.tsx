@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { StatusBar } from "expo-status-bar";
-import { SafeAreaView, StyleSheet } from "react-native";
+import { View, StyleSheet, Platform } from "react-native";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import LoginScreen from "./src/screens/LoginScreen";
 import ChatListScreen from "./src/screens/ChatListScreen";
 import ChatRoomScreen from "./src/screens/ChatRoomScreen";
@@ -8,31 +9,22 @@ import { ChatUser } from "./src/lib/storage";
 
 type Screen = { name: "login" } | { name: "list" } | { name: "chat"; conversationId: string };
 
-export default function App() {
+function AppContent() {
   const [me, setMe] = useState<ChatUser | null>(null);
   const [screen, setScreen] = useState<Screen>({ name: "login" });
-
-  function handleLogin(user: ChatUser) {
-    setMe(user);
-    setScreen({ name: "list" });
-  }
-
-  function handleLogout() {
-    setMe(null);
-    setScreen({ name: "login" });
-  }
+  const insets = useSafeAreaInsets();
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
+    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <StatusBar style="light" backgroundColor="#202c33" />
       {screen.name === "login" && (
-        <LoginScreen onLogin={handleLogin} />
+        <LoginScreen onLogin={(user) => { setMe(user); setScreen({ name: "list" }); }} />
       )}
       {screen.name === "list" && me && (
         <ChatListScreen
           me={me}
           onOpenChat={(id) => setScreen({ name: "chat", conversationId: id })}
-          onLogout={handleLogout}
+          onLogout={() => { setMe(null); setScreen({ name: "login" }); }}
         />
       )}
       {screen.name === "chat" && me && (
@@ -42,7 +34,15 @@ export default function App() {
           onBack={() => setScreen({ name: "list" })}
         />
       )}
-    </SafeAreaView>
+    </View>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppContent />
+    </SafeAreaProvider>
   );
 }
 
