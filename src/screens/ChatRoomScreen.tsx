@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Image, KeyboardAvoidingView, Platform, Dimensions, Modal } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Image, KeyboardAvoidingView, Platform, Dimensions, Modal, Linking } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { chatApi } from "../lib/api";
@@ -36,7 +36,6 @@ export default function ChatRoomScreen({ me, conversationId, onBack }: { me: Cha
   const [muted, setMuted] = useState(false);
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const flatListRef = useRef<FlatList>(null);
-  const livekitRoomRef = useRef<any>(null);
 
   useEffect(() => {
     loadMessages();
@@ -107,76 +106,24 @@ export default function ChatRoomScreen({ me, conversationId, onBack }: { me: Cha
     setUploading(false);
   }
 
-  // ── LiveKit Calls ──
-  async function startCall(type: "audio" | "video") {
-    if (!me || !otherUser) return;
-    setCallType(type); setCalling(true); setMuted(false);
-    try {
-      const roomName = `call-${conversationId}`;
-      const res = await chatApi.getLivekitToken(roomName, me.id, me.display_name);
-      if (!res.ok) throw new Error("Token failed");
-
-      const { Room, RoomEvent } = await import("livekit-client");
-      const room = new Room({ adaptiveStream: true, dynacast: true, audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-      livekitRoomRef.current = room;
-
-      room.on(RoomEvent.ParticipantConnected, () => { setCalling(false); });
-      room.on(RoomEvent.ParticipantDisconnected, () => endCall());
-      room.on(RoomEvent.Disconnected, () => endCall());
-      room.on(RoomEvent.TrackSubscribed, (track: any) => {
-        if (track.kind === "audio") {
-          // Native handles audio automatically
-        }
-      });
-
-      await room.connect(res.url, res.token);
-      await room.localParticipant.setMicrophoneEnabled(true);
-      if (type === "video") await room.localParticipant.setCameraEnabled(true);
-
-      await chatApi.sendCallSignal({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-start", payload: { roomName, callType: type } });
-      setInCall(true);
-    } catch (err: any) {
-      console.error(err);
-      setCalling(false);
+  // ── Calls — web fallback until native WebRTC is set up ──
+  function startCall(type: "audio" | "video") {
+    if (me && otherUser) {
+      chatApi.sendCallSignal({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-start", payload: { callType: type } });
     }
+    Linking.openURL(`https://lethal-seven.vercel.app/chat/${conversationId}`);
   }
 
-  async function answerCall(signal: any) {
+  function answerCall(signal: any) {
     setIncomingCall(null);
-    setCallType(signal.payload.callType || "audio"); setInCall(true); setMuted(false);
-    try {
-      const res = await chatApi.getLivekitToken(signal.payload.roomName, me.id, me.display_name);
-      if (!res.ok) throw new Error("Token failed");
-
-      const { Room, RoomEvent } = await import("livekit-client");
-      const room = new Room({ adaptiveStream: true, dynacast: true, audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-      livekitRoomRef.current = room;
-
-      room.on(RoomEvent.ParticipantDisconnected, () => endCall());
-      room.on(RoomEvent.Disconnected, () => endCall());
-
-      await room.connect(res.url, res.token);
-      await room.localParticipant.setMicrophoneEnabled(true);
-      if (signal.payload.callType === "video") await room.localParticipant.setCameraEnabled(true);
-    } catch (err: any) {
-      console.error(err);
-      setInCall(false);
-    }
+    Linking.openURL(`https://lethal-seven.vercel.app/chat/${conversationId}`);
   }
 
   function endCall() {
-    if (livekitRoomRef.current) { try { livekitRoomRef.current.disconnect(); } catch {} livekitRoomRef.current = null; }
-    setInCall(false); setCalling(false); setMuted(false);
-    if (me && otherUser) chatApi.sendCallSignal({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-end", payload: {} });
+    setInCall(false); setCalling(false); setMuted(false); setIncomingCall(null);
   }
 
-  function toggleMute() {
-    if (livekitRoomRef.current) {
-      const newMuted = !muted;
-      livekitRoomRef.current.localParticipant.setMicrophoneEnabled(!newMuted);
-      setMuted(newMuted);
-    }
-  }
+  function toggleMute() {}
 
   function handleCallSignal(s: any) {
     if (s.type === "call-start") setIncomingCall(s);
@@ -260,11 +207,7 @@ export default function ChatRoomScreen({ me, conversationId, onBack }: { me: Cha
               <Ionicons name="call" size={28} color="#fff" style={{ transform: [{ rotate: "135deg" }] }} />
             </TouchableOpacity>
             <TouchableOpacity style={[styles.callControlBtn, callType === "video" && styles.callControlActive]} onPress={() => {
-              if (livekitRoomRef.current) {
-                const newType = callType === "video" ? "audio" : "video";
-                livekitRoomRef.current.localParticipant.setCameraEnabled(newType === "video");
-                setCallType(newType);
-              }
+              setCallType(callType === "video" ? "audio" : "video");
             }}>
               <Ionicons name={callType === "video" ? "videocam" : "videocam-off"} size={24} color={callType === "video" ? "#333" : "#fff"} />
             </TouchableOpacity>
