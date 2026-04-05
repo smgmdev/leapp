@@ -36,6 +36,12 @@
     },
     "runtimeVersion": {
       "policy": "sdkVersion"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "9d41b2de-258d-4635-a5c5-f77c6585dce0"
+      }
+    },
+    "owner": "ailuminati"
   }
 }
