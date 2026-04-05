@@ -28,9 +28,6 @@
         "READ_EXTERNAL_STORAGE"
       ]
     },
-    "plugins": [
-      "react-native-webrtc"
-    ],
     "web": {
       "favicon": "./assets/favicon.png"
     },
