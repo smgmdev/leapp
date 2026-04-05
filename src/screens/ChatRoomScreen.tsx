@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Image, KeyboardAvoidingView, Platform, Dimensions, Modal } from "react-native";
-import { RTCPeerConnection, RTCSessionDescription, mediaDevices } from "react-native-webrtc";
+import { WebView } from "react-native-webview";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { chatApi } from "../lib/api";
@@ -37,8 +37,7 @@ export default function ChatRoomScreen({ me, conversationId, onBack }: { me: Cha
   const [muted, setMuted] = useState(false);
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const flatListRef = useRef<FlatList>(null);
-  const pcRef = useRef<any>(null);
-  const localStreamRef = useRef<any>(null);
+  const [callUrl, setCallUrl] = useState<string | null>(null);
 
   useEffect(() => {
     loadMessages();
@@ -109,98 +108,31 @@ export default function ChatRoomScreen({ me, conversationId, onBack }: { me: Cha
     setUploading(false);
   }
 
-  // ── Native WebRTC Calls ──
-  function createPC() {
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }] });
-    pc.ontrack = () => { setCalling(false); };
-    return pc;
-  }
-
-  function waitForIce(pc: any): Promise<void> {
-    return new Promise((resolve) => {
-      if (pc.iceGatheringState === "complete") { resolve(); return; }
-      pc.addEventListener("icegatheringstatechange", () => {
-        if (pc.iceGatheringState === "complete") resolve();
-      });
-      setTimeout(resolve, 3000);
-    });
-  }
-
-  async function startCall(type: "audio" | "video") {
-    if (!me || !otherUser) return;
-    setCallType(type); setCalling(true); setMuted(false); setInCall(true);
-    try {
-      const stream = await mediaDevices.getUserMedia({ audio: true, video: type === "video" });
-      localStreamRef.current = stream;
-
-      const pc = createPC();
-      pcRef.current = pc;
-      stream.getTracks().forEach((t: any) => pc.addTrack(t, stream));
-
-      const offer = await pc.createOffer({});
-      await pc.setLocalDescription(offer);
-      await waitForIce(pc);
-
-      await chatApi.sendCallSignal({
-        conversationId, fromId: me.id, toId: otherUser.id, type: "call-start",
-        payload: { offer: pc.localDescription, callType: type }
-      });
-    } catch (err) {
-      console.error("Call error:", err);
-      setInCall(false); setCalling(false);
+  // ── Calls via in-app WebView ──
+  function startCall(type: "audio" | "video") {
+    if (me && otherUser) {
+      chatApi.sendCallSignal({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-start", payload: { callType: type } });
     }
+    setCallUrl(`https://lethal-seven.vercel.app/chat/${conversationId}`);
+    setInCall(true); setCallType(type);
   }
 
-  async function answerCall(signal: any) {
-    if (!me) return;
-    setIncomingCall(null); setCallType(signal.payload.callType || "audio");
-    setInCall(true); setMuted(false);
-    try {
-      const stream = await mediaDevices.getUserMedia({ audio: true, video: signal.payload.callType === "video" });
-      localStreamRef.current = stream;
-
-      const pc = createPC();
-      pcRef.current = pc;
-      stream.getTracks().forEach((t: any) => pc.addTrack(t, stream));
-
-      await pc.setRemoteDescription(new RTCSessionDescription(signal.payload.offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      await waitForIce(pc);
-
-      await chatApi.sendCallSignal({
-        conversationId, fromId: me.id, toId: signal.from_id, type: "call-answer",
-        payload: { answer: pc.localDescription }
-      });
-    } catch (err) {
-      console.error("Answer error:", err);
-      setInCall(false);
-    }
+  function answerCall(signal: any) {
+    setIncomingCall(null);
+    setCallUrl(`https://lethal-seven.vercel.app/chat/${conversationId}`);
+    setInCall(true); setCallType(signal.payload?.callType || "audio");
   }
 
   function endCall() {
-    if (pcRef.current) { try { pcRef.current.close(); } catch {} pcRef.current = null; }
-    if (localStreamRef.current) { localStreamRef.current.getTracks().forEach((t: any) => t.stop()); localStreamRef.current = null; }
+    setCallUrl(null);
     setInCall(false); setCalling(false); setMuted(false); setIncomingCall(null);
     if (me && otherUser) chatApi.sendCallSignal({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-end", payload: {} });
   }
 
-  function toggleMute() {
-    if (localStreamRef.current) {
-      const audioTrack = localStreamRef.current.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setMuted(!audioTrack.enabled);
-      }
-    }
-  }
+  function toggleMute() {}
 
   function handleCallSignal(s: any) {
     if (s.type === "call-start" && !inCall) setIncomingCall(s);
-    else if (s.type === "call-answer" && pcRef.current) {
-      pcRef.current.setRemoteDescription(new RTCSessionDescription(s.payload.answer)).catch(() => {});
-      setCalling(false);
-    }
     else if (s.type === "call-end") endCall();
   }
 
@@ -267,25 +199,26 @@ export default function ChatRoomScreen({ me, conversationId, onBack }: { me: Cha
         </View>
       </Modal>
 
-      {/* In-call UI */}
-      <Modal visible={inCall} animationType="slide">
+      {/* In-call WebView */}
+      <Modal visible={inCall && !!callUrl} animationType="slide">
         <View style={styles.inCallContainer}>
-          <View style={styles.callAvatar}><Text style={styles.callAvatarText}>{otherUser?.display_name?.[0]?.toUpperCase()}</Text></View>
-          <Text style={styles.callName}>{otherUser?.display_name}</Text>
-          <Text style={styles.callLabel}>{calling ? "Connecting..." : "In call"}</Text>
-          <View style={styles.inCallActions}>
-            <TouchableOpacity style={[styles.callControlBtn, muted && styles.callControlActive]} onPress={toggleMute}>
-              <Ionicons name={muted ? "mic-off" : "mic"} size={24} color={muted ? "#333" : "#fff"} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.endCallBtn} onPress={endCall}>
-              <Ionicons name="call" size={28} color="#fff" style={{ transform: [{ rotate: "135deg" }] }} />
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.callControlBtn, callType === "video" && styles.callControlActive]} onPress={() => {
-              setCallType(callType === "video" ? "audio" : "video");
-            }}>
-              <Ionicons name={callType === "video" ? "videocam" : "videocam-off"} size={24} color={callType === "video" ? "#333" : "#fff"} />
+          <View style={styles.callHeader}>
+            <Text style={styles.callHeaderText}>Call with {otherUser?.display_name}</Text>
+            <TouchableOpacity onPress={endCall} style={styles.endCallSmall}>
+              <Ionicons name="close" size={24} color="#fff" />
             </TouchableOpacity>
           </View>
+          {callUrl && (
+            <WebView
+              source={{ uri: callUrl }}
+              style={{ flex: 1 }}
+              mediaPlaybackRequiresUserAction={false}
+              allowsInlineMediaPlayback={true}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              mediaCapturePermissionGrantType="grant"
+            />
+          )}
         </View>
       </Modal>
 
@@ -411,9 +344,8 @@ const styles = StyleSheet.create({
   acceptBtn: { width: 60, height: 60, borderRadius: 30, backgroundColor: "#00a884", justifyContent: "center", alignItems: "center" },
   callLabelsRow: { flexDirection: "row", gap: 40, marginTop: 8 },
   callActionLabel: { color: "#8696a0", fontSize: 11, width: 60, textAlign: "center" },
-  inCallContainer: { flex: 1, backgroundColor: "#0b141a", justifyContent: "center", alignItems: "center" },
-  inCallActions: { flexDirection: "row", gap: 20, position: "absolute", bottom: 60 },
-  callControlBtn: { width: 52, height: 52, borderRadius: 26, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
-  callControlActive: { backgroundColor: "#fff" },
-  endCallBtn: { width: 64, height: 64, borderRadius: 32, backgroundColor: "#ef4444", justifyContent: "center", alignItems: "center" },
+  inCallContainer: { flex: 1, backgroundColor: "#0b141a" },
+  callHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#202c33", paddingHorizontal: 16, paddingVertical: 12, paddingTop: 50 },
+  callHeaderText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  endCallSmall: { width: 36, height: 36, borderRadius: 18, backgroundColor: "#ef4444", justifyContent: "center", alignItems: "center" },
 });
