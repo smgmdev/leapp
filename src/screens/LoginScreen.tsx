@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { chatApi } from "../lib/api";
 import { getUser, setUser, ChatUser } from "../lib/storage";
 
@@ -30,7 +31,7 @@ export default function LoginScreen({ onLogin }: { onLogin: (user: ChatUser) => 
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={styles.card}>
         <View style={styles.iconCircle}>
-          <Text style={styles.iconText}>💬</Text>
+          <Ionicons name="chatbubbles" size={32} color="#fff" />
         </View>
         <Text style={styles.title}>Chat</Text>
         <Text style={styles.subtitle}>Enter your details to start chatting</Text>
@@ -63,7 +64,6 @@ const styles = StyleSheet.create({
   loadingText: { color: "#8696a0", fontSize: 14 },
   card: { width: "100%", maxWidth: 360, alignItems: "center" },
   iconCircle: { width: 64, height: 64, borderRadius: 32, backgroundColor: "#00a884", justifyContent: "center", alignItems: "center", marginBottom: 16 },
-  iconText: { fontSize: 28 },
   title: { color: "#fff", fontSize: 24, fontWeight: "bold", marginBottom: 4 },
   subtitle: { color: "#8696a0", fontSize: 14, marginBottom: 24 },
   input: { width: "100%", backgroundColor: "#2a3942", color: "#fff", borderRadius: 10, paddingHorizontal: 16, paddingVertical: 14, fontSize: 14, marginBottom: 12 },

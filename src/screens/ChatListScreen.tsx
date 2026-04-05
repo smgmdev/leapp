@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { chatApi } from "../lib/api";
 import { clearUser, ChatUser } from "../lib/storage";
 
@@ -69,8 +70,8 @@ export default function ChatListScreen({ me, onOpenChat, onLogout }: { me: ChatU
             <Text style={styles.headerUsername}>@{me.username}</Text>
           </View>
         </View>
-        <TouchableOpacity onPress={handleLogout}>
-          <Text style={styles.logoutText}>Logout</Text>
+        <TouchableOpacity onPress={handleLogout} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Ionicons name="log-out-outline" size={22} color="#8696a0" />
         </TouchableOpacity>
       </View>
 
@@ -153,7 +154,7 @@ export default function ChatListScreen({ me, onOpenChat, onLogout }: { me: ChatU
                   <Text style={styles.rowName}>{item.display_name}</Text>
                   <Text style={styles.rowUsername}>@{item.username}</Text>
                 </View>
-                <Text style={styles.messageBtn}>Message</Text>
+                <Ionicons name="chatbubble-outline" size={18} color="#00a884" />
               </TouchableOpacity>
             )}
           />
