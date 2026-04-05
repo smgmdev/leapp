@@ -25,6 +25,9 @@
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "CAMERA",
+        "RECORD_AUDIO",
         "READ_EXTERNAL_STORAGE"
       ]
     },
@@ -32,7 +35,7 @@
       "favicon": "./assets/favicon.png"
     },
     "updates": {
-      "url": "https://u.expo.dev/lethal-app"
+      "url": "https://u.expo.dev/9d41b2de-258d-4635-a5c5-f77c6585dce0"
     },
     "runtimeVersion": {
       "policy": "sdkVersion"
