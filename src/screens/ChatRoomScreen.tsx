@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Image, KeyboardAvoidingView, Platform, Dimensions, Modal, Linking } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Image, KeyboardAvoidingView, Platform, Dimensions, Modal } from "react-native";
+import { RTCPeerConnection, RTCSessionDescription, mediaDevices } from "react-native-webrtc";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { chatApi } from "../lib/api";
@@ -36,6 +37,8 @@ export default function ChatRoomScreen({ me, conversationId, onBack }: { me: Cha
   const [muted, setMuted] = useState(false);
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const flatListRef = useRef<FlatList>(null);
+  const pcRef = useRef<any>(null);
+  const localStreamRef = useRef<any>(null);
 
   useEffect(() => {
     loadMessages();
@@ -106,27 +109,98 @@ export default function ChatRoomScreen({ me, conversationId, onBack }: { me: Cha
     setUploading(false);
   }
 
-  // ── Calls — web fallback until native WebRTC is set up ──
-  function startCall(type: "audio" | "video") {
-    if (me && otherUser) {
-      chatApi.sendCallSignal({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-start", payload: { callType: type } });
-    }
-    Linking.openURL(`https://lethal-seven.vercel.app/chat/${conversationId}`);
+  // ── Native WebRTC Calls ──
+  function createPC() {
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }] });
+    pc.ontrack = () => { setCalling(false); };
+    return pc;
   }
 
-  function answerCall(signal: any) {
-    setIncomingCall(null);
-    Linking.openURL(`https://lethal-seven.vercel.app/chat/${conversationId}`);
+  function waitForIce(pc: any): Promise<void> {
+    return new Promise((resolve) => {
+      if (pc.iceGatheringState === "complete") { resolve(); return; }
+      pc.addEventListener("icegatheringstatechange", () => {
+        if (pc.iceGatheringState === "complete") resolve();
+      });
+      setTimeout(resolve, 3000);
+    });
+  }
+
+  async function startCall(type: "audio" | "video") {
+    if (!me || !otherUser) return;
+    setCallType(type); setCalling(true); setMuted(false); setInCall(true);
+    try {
+      const stream = await mediaDevices.getUserMedia({ audio: true, video: type === "video" });
+      localStreamRef.current = stream;
+
+      const pc = createPC();
+      pcRef.current = pc;
+      stream.getTracks().forEach((t: any) => pc.addTrack(t, stream));
+
+      const offer = await pc.createOffer({});
+      await pc.setLocalDescription(offer);
+      await waitForIce(pc);
+
+      await chatApi.sendCallSignal({
+        conversationId, fromId: me.id, toId: otherUser.id, type: "call-start",
+        payload: { offer: pc.localDescription, callType: type }
+      });
+    } catch (err) {
+      console.error("Call error:", err);
+      setInCall(false); setCalling(false);
+    }
+  }
+
+  async function answerCall(signal: any) {
+    if (!me) return;
+    setIncomingCall(null); setCallType(signal.payload.callType || "audio");
+    setInCall(true); setMuted(false);
+    try {
+      const stream = await mediaDevices.getUserMedia({ audio: true, video: signal.payload.callType === "video" });
+      localStreamRef.current = stream;
+
+      const pc = createPC();
+      pcRef.current = pc;
+      stream.getTracks().forEach((t: any) => pc.addTrack(t, stream));
+
+      await pc.setRemoteDescription(new RTCSessionDescription(signal.payload.offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await waitForIce(pc);
+
+      await chatApi.sendCallSignal({
+        conversationId, fromId: me.id, toId: signal.from_id, type: "call-answer",
+        payload: { answer: pc.localDescription }
+      });
+    } catch (err) {
+      console.error("Answer error:", err);
+      setInCall(false);
+    }
   }
 
   function endCall() {
+    if (pcRef.current) { try { pcRef.current.close(); } catch {} pcRef.current = null; }
+    if (localStreamRef.current) { localStreamRef.current.getTracks().forEach((t: any) => t.stop()); localStreamRef.current = null; }
     setInCall(false); setCalling(false); setMuted(false); setIncomingCall(null);
+    if (me && otherUser) chatApi.sendCallSignal({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-end", payload: {} });
   }
 
-  function toggleMute() {}
+  function toggleMute() {
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setMuted(!audioTrack.enabled);
+      }
+    }
+  }
 
   function handleCallSignal(s: any) {
-    if (s.type === "call-start") setIncomingCall(s);
+    if (s.type === "call-start" && !inCall) setIncomingCall(s);
+    else if (s.type === "call-answer" && pcRef.current) {
+      pcRef.current.setRemoteDescription(new RTCSessionDescription(s.payload.answer)).catch(() => {});
+      setCalling(false);
+    }
     else if (s.type === "call-end") endCall();
   }
 
